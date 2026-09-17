@@ -1,107 +1,141 @@
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'background': '#ffffff',
+    'primaryColor': '#ffffff',
+    'primaryTextColor': '#000000',
+    'primaryBorderColor': '#000000',
+    'lineColor': '#000000',
+    'tertiaryColor': '#ffffff'
+  }
+}}%%
 graph TD
-    %% Etapa 1: Verificación del funcionamiento del hardware
-    subgraph Etapa 1: Verificación del funcionamiento del hardware
-        A([ Power on ]) --> B{{ Energización de la fpga con inicio en 0x00000000 }}
-        B --> C[/ Lectura del firmware de arranque /]
-        C --> D[\ Verificación del módulo de video y periféricos PS2/NES/mouse: muestra 'press x' /]
+    %% Flechas negras gruesas
+    linkStyle default stroke:#000000,stroke-width:3.5px;
+
+    classDef inicio fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000;
+    classDef proceso fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
+    classDef decision fill:#fff8e1,stroke:#f57f17,stroke-width:2px,color:#000;
+    classDef io fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000;
+    classDef alerta fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000;
+
+    %% ETAPA 1: VERIFICACIÓN DE HARDWARE
+    subgraph E1 [Etapa 1: Verificación del funcionamiento del hardware]
+        A(["Encender consola"]):::inicio --> B{{"Iniciar sistema en la FPGA"}}:::proceso
+        B --> C["Cargar programa inicial"]:::io
+        C --> D["Probar pantalla y mando: Mostrar mensaje 'Press X'"]:::io
         
-        D --> E{ ¿Se detecta la pulsación de la tecla? }
-        E -- Sí --> F[ Verificación del módulo de audio: al presionar una tecla se reproduce sonido ]
+        D --> E{"¿Se presiona una tecla?"}:::decision
+        E -- Sí --> F["Probar sonido: Emitir tono al pulsar tecla"]:::proceso
         
-        E -- No --> G{ ¿Se alcanza la mitad del timer de timeout? }
-        G -- Sí --> H[ Emite alerta de audio de timeout ]
-        H --> I{ ¿Expira el tiempo límite total sin tecla? }
+        E -- No --> G{"¿Va por la mitad del tiempo límite?"}:::decision
+        G -- Sí --> H["Sonar alarma de tiempo de espera"]:::alerta
+        H --> I{"¿Se agotó el tiempo total de espera?"}:::decision
         G -- No --> I
         
         I -- No --> E
-        I -- Sí --> J([ Bloqueo del sistema: detiene el arranque por falta de entrada ])
+        I -- Sí --> J(["Bloquear sistema: No se detectó mando"]):::alerta
         
-        F --> K{ ¿El firmware evalúa que se está enviando sonido? }
-        K -- Sí --> L[ Se establece Audio = 1 ]
-        K -- No --> M[ Se establece Audio = 0 y juega normal ]
+        F --> K{"¿El sonido funciona correctamente?"}:::decision
+        K -- Sí --> L["Activar sonido por defecto"]:::proceso
+        K -- No --> M["Desactivar sonido por defecto"]:::proceso
         
-        L --> N{ ¿Se realiza la validación de información en memoria? }
+        L --> N{"¿Revisar datos guardados?"}:::decision
         M --> N
         
-        N -. Opcional .-> O[/ Lectura del magic byte en la eeprom /]
-        O --> P{ ¿La estructura de datos está bien? }
-        P -- Sí --> Q[ Save_ok = 1: estructura bien ]
-        P -- No --> R[ Save_ok = 0: modo no guardar ]
+        N -. Opcional .-> O["Leer datos de la memoria"]:::io
+        O --> P{"¿Los datos están correctos?"}:::decision
+        P -- Sí --> Q["Permitir guardar partidas"]:::proceso
+        P -- No --> R["Desactivar guardado de partidas"]:::proceso
         
-        Q --> S
-        R --> S
-        N -. Saltar proceso .-> S
+        Q --> S1(( S )):::inicio
+        R --> S1
+        N -. Omitir .-> S1
     end
 
-    %% Etapa 2: Interfaz de menú
-    subgraph Etapa 2: Interfaz de menú
-        S[\ Dibujar menú principal: muestra la lista con los 4 juegos, dibuja 4 íconos e inicia en ID = 0 /]
-        S --> T[/ Leer entrada del mando /]
+    %% ETAPA 2: INTERFAZ DE MENÚ
+    subgraph E2 [Etapa 2: Interfaz del menú principal]
+        S1 --> S_Menu["Mostrar Menú Principal: Cuadrícula con 4 juegos (ID 0, 1, 2, 3)"]:::io
+        S_Menu --> T["Leer botón del mando"]:::io
         
-        T --> U{ ¿Qué comando se detecta? }
+        T --> U{"¿Qué botón se presionó?"}:::decision
         
-        U -- Cruceta --> V[ Cambiar fila o columna y mover marco selector ]
-        U -- Botón B --> W[\ Mostrar pantalla de tutorial /]
-        U -- Select --> Y[ Ingresar a configuración del sistema ]
+        %% Programación detallada de los 4 movimientos de la Cruceta
+        U -- Cruceta --> V{"¿Hacia qué dirección?"}:::decision
+        V -- Arriba / Abajo --> V1["Mover selector verticalmente entre filas"]:::proceso
+        V -- Izquierda / Derecha --> V2["Mover selector horizontalmente entre columnas"]:::proceso
         
-        U -- Botón A --> X{ ¿El audio se encuentra activo Audio == 1? }
-        X -- Sí --> X1[ Desactivar sonido: Audio = 0 ]
-        X -- No --> X2[ Activar sonido: Audio = 1 ]
+        V1 --> V3["Actualizar selección y asignar nuevo juego: ID 0, 1, 2 ó 3"]:::proceso
+        V2 --> V3
         
-        %% Nodo de retorno unificado para evitar cruce de líneas
-        V --> Z1[ Actualizar interfaz visual y esperar entrada ]
+        U -- Botón B --> W["Mostrar pantalla de ayuda y controles"]:::io
+        U -- Select --> Y["Cambiar entre modo 1 Jugador y Multijugador"]:::proceso
+        
+        U -- Botón A --> X{"¿El sonido está encendido?"}:::decision
+        X -- Sí --> X1["Apagar sonido y quitar ícono de parlante"]:::proceso
+        X -- No --> X2["Encender sonido y mostrar ícono de parlante"]:::proceso
+        
+        %% Retorno limpio y unificado
+        V3 --> Z1["Actualizar la pantalla del menú"]:::proceso
         W --> Z1
         Y --> Z1
         X1 --> Z1
         X2 --> Z1
+        
         Z1 --> T
         
-        %% Evaluación limpia para Start
-        U -- Start --> Z2{ ¿Se seleccionó modo multijugador? }
+        %% Salida al presionar Start
+        U -- Start --> Z2{"¿Está seleccionado el modo Multijugador?"}:::decision
         Z2 -- No --> AA
-        Z2 -- Sí --> Z3[ Ejecutar protocolo de comunicación entre pantallas ]
-        Z3 --> Z4[\ Desplegar visualmente en la matriz las pantallas conectadas /]
+        Z2 -- Sí --> Z3["Validar conexión de las 4 pantallas para detectar cuáles están activas"]:::proceso
+        Z3 --> Z4["Mostrar en pantalla cuáles de las 4 consolas están unidas"]:::io
         Z4 --> AA
     end
 
-    %% Etapa 3: Inicializar y bucle de juego
-    subgraph Etapa 3: Inicializar y bucle de juego
-        AA{{ Reinicio de variables: puntaje y vidas, asignando coordenadas iniciales }} --> AB[/ Lectura de entradas en el juego /]
+    %% ETAPA 3: BUCLE PRINCIPAL DE JUEGO (GAME LOOP)
+    subgraph E3 [Etapa 3: Bucle del juego]
+        AA{{"Cargar vidas, puntos e imagen del juego seleccionado según su ID"}}:::proceso --> AB
         
-        AB --> AC{ Select: ¿romper el juego? }
-        AC -- Sí --> AD[ Salir al menú principal ]
-        AD --> S
+        AB["Leer botones durante el juego"]:::io --> AC{"¿Se presiona Select?"}:::decision
         
-        AC -- No --> AE{ Start: ¿pausar el juego? }
-        AE -- Sí --> AF[ Conmutar estado de pausa ]
-        AF --> AG{ ¿El juego se encuentra en pausa? }
+        AC -- Sí --> AD["Salir del juego actual"]:::proceso
+        AD --> S_Exit1(( S )):::inicio
+        
+        AC -- No --> AE{"¿Se presiona Start?"}:::decision
+        AE -- Sí --> AF["Cambiar estado de pausa"]:::proceso
+        AF --> AG{"¿El juego está en pausa?"}:::decision
         AE -- No --> AG
         
-        AG -- Sí --> AH[\ Congelar pantalla y mostrar texto de pausa /]
+        AG -- Sí --> AH["Congelar juego y mostrar mensaje de 'Pausa'"]:::io
         AH --> AB
         
-        AG -- No --> AI[ Actualización de posición: coordenadas de jugador, obstáculo y enemigo ]
+        AG -- No --> AI["Mover al personaje, enemigos y objetos"]:::proceso
         
-        AI --> AJ{ Jugador vs enemigo u obstáculo: ¿coinciden coordenadas? }
-        AJ -- Sí --> AK[ Resta una vida ]
-        AK --> AL[ Emite tono de daño ]
-        AL --> AM[ Reinicia coordenadas x,y del jugador ]
-        AM --> AN{ ¿Cantidad de vidas == 0? }
-        AN -- Sí --> AO[\ Lógica de perder: despliega pantalla de juego terminado /]
-        AO --> S
-        AN -- No --> AP[\ Renderizar fotograma en la matriz /]
+        AI --> AJ{"¿El personaje choca con un enemigo u obstáculo?"}:::decision
+        AJ -- Sí --> AK["Perder 1 vida"]:::alerta
+        AK --> AL["Sonar efecto de daño"]:::alerta
+        AL --> AM["Regresar personaje a su posición inicial"]:::proceso
+        AM --> AN{"¿Se quedaron sin vidas?"}:::decision
+        AN -- Sí --> AO["Mostrar pantalla de 'Juego Terminado'"]:::alerta
+        AO --> S_Exit2(( S )):::inicio
+        AN -- No --> AP["Actualizar la imagen en la pantalla"]:::io
         
-        AJ -- No --> AQ{ Jugador vs ítem o punto: ¿coinciden coordenadas? }
-        AQ -- Sí --> AR[ Incremento de puntaje ]
-        AR --> AS[ Reproduce sonido de recompensa ]
-        AS --> AT{ ¿Se cumple la condición para ganar el nivel? }
+        AJ -- No --> AQ{"¿El personaje atrapa un ítem o punto?"}:::decision
+        AQ -- Sí --> AR["Sumar puntos al marcador"]:::proceso
+        AR --> AS["Sonar efecto de recompensa"]:::proceso
+        AS --> AT{"¿Alcanzó la puntuación para ganar el nivel?"}:::decision
         
         AQ -- No --> AT
         
-        AT -- Sí --> AU[\ Lógica de ganar: despliega pantalla de victoria /]
-        AU --> S
-        AT -- No --> AP
+        AT -- Sí --> AU["Mostrar pantalla de '¡Ganaste!'"]:::io
+        AU --> S_Exit3(( S )):::inicio
         
+        AT -- No --> AP
         AP --> AB
     end
+
+    %% Estilos de contenedores
+    style E1 fill:#ffffff,stroke:#cccccc,stroke-width:1px;
+    style E2 fill:#ffffff,stroke:#cccccc,stroke-width:1px;
+    style E3 fill:#ffffff,stroke:#cccccc,stroke-width:1px;

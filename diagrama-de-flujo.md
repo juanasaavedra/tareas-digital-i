@@ -69,8 +69,8 @@ graph TD
         V1 --> V3["Actualizar selección y asignar nuevo juego: ID 0, 1, 2 ó 3"]:::proceso
         V2 --> V3
         
-        U -- Botón B --> W["Mostrar pantalla de ayuda y controles"]:::io
-        U -- Select --> Y["Cambiar entre modo 1 Jugador y Multijugador"]:::proceso
+        U -- Botón B --> W["Mostrar tutorial del juego seleccionado"]:::io
+        U -- Select --> Y["Ingresar a la configuración del sistema"]:::proceso
         
         U -- Botón A --> X{"¿El sonido está encendido?"}:::decision
         X -- Sí --> X1["Apagar sonido y quitar ícono de parlante"]:::proceso
@@ -110,9 +110,15 @@ graph TD
         AG -- Sí --> AH["Congelar juego y mostrar mensaje de 'Pausa'"]:::io
         AH --> AB
         
-        AG -- No --> AI["Mover al personaje, enemigos y objetos"]:::proceso
+        %% Desglose detallado del movimiento y físicas
+        AG -- No --> AI1["Calcular posición del personaje según los botones presionados"]:::proceso
+        AI1 --> AI2["Mover objetos o pelota automáticamente según su velocidad y dirección"]:::proceso
+        AI2 --> AI3{"¿Los objetos o la pelota chocan con los bordes de la pantalla?"}:::decision
+        AI3 -- Sí --> AI4["Invertir dirección de movimiento (Rebote)"]:::proceso
+        AI3 -- No --> AJ
+        AI4 --> AJ
         
-        AI --> AJ{"¿El personaje choca con un enemigo u obstáculo?"}:::decision
+        AJ{"¿El personaje choca con un enemigo u obstáculo?"}:::decision
         AJ -- Sí --> AK["Perder 1 vida"]:::alerta
         AK --> AL["Sonar efecto de daño"]:::alerta
         AL --> AM["Regresar personaje a su posición inicial"]:::proceso

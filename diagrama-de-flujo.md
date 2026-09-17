@@ -20,48 +20,63 @@ graph TD
     classDef io fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000;
     classDef alerta fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000;
 
-    %% ETAPA 1: VERIFICACIÓN DE HARDWARE
+    %% ETAPA 1: VERIFICACIÓN DE HARDWARE (DETECCIÓN PARALELA Y UN SOLO TIMEOUT)
     subgraph E1 [Etapa 1: Verificación del funcionamiento del hardware]
         A(["Encender consola"]):::inicio --> B{{"Iniciar sistema en la FPGA"}}:::proceso
-        B --> C["Cargar programa inicial"]:::io
-        C --> D["Probar pantalla y mando: Mostrar mensaje 'Press X'"]:::io
+        B --> C["Cargar programa de prueba inicial"]:::io
         
-        D --> E{"¿Se presiona una tecla?"}:::decision
-        E -- Sí --> F["Probar sonido: Emitir tono al pulsar tecla"]:::proceso
+        %% Un solo mensaje y un solo temporizador
+        C --> D["Iniciar temporizador único de timeout (e.g., 10s) y escuchar puertos en paralelo"]:::proceso
+        D --> E["Mostrar en pantalla: 'Presione cualquier botón para continuar'"]:::io
         
-        E -- No --> G{"¿Va por la mitad del tiempo límite?"}:::decision
-        G -- Sí --> H["Sonar alarma de tiempo de espera"]:::alerta
-        H --> I{"¿Se agotó el tiempo total de espera?"}:::decision
-        G -- No --> I
+        %% Escucha continua paralela
+        E --> F{"¿Se recibe señal en algún puerto?"}:::decision
         
-        I -- No --> E
-        I -- Sí --> J(["Bloquear sistema: No se detectó mando"]):::alerta
+        %% Rama de no detección / Timeout único
+        F -- No --> G{"Estado del temporizador único"}:::decision
+        G -- Llego a la mitad --> H["Emitir alarma sonora de advertencia"]:::alerta
+        H --> F
+        G -- Tiempo agotado --> I(["Bloquear sistema: Tiempo de espera agotado"]):::alerta
+        G -- En curso --> F
         
-        F --> K{"¿El sonido funciona correctamente?"}:::decision
-        K -- Sí --> L["Activar sonido por defecto"]:::proceso
-        K -- No --> M["Desactivar sonido por defecto"]:::proceso
+        %% Rama de detección automática del puerto
+        F -- Sí --> J{"Identificar automáticamente el origen de la señal"}:::decision
+        J -- Puerto NES --> K1["Registrar Mando NES como periférico activo"]:::proceso
+        J -- Puerto PS/2 Teclado --> K2["Registrar Teclado PS/2 como periférico activo"]:::proceso
+        J -- Puerto PS/2 Mouse --> K3["Registrar Mouse PS/2 como periférico activo"]:::proceso
         
-        L --> N{"¿Revisar datos guardados?"}:::decision
-        M --> N
+        %% Sonido y Memoria
+        K1 --> L["Emitir tono de confirmación de sonido"]:::proceso
+        K2 --> L
+        K3 --> L
         
-        N -. Opcional .-> O["Leer datos de la memoria"]:::io
-        O --> P{"¿Los datos están correctos?"}:::decision
-        P -- Sí --> Q["Permitir guardar partidas"]:::proceso
-        P -- No --> R["Desactivar guardado de partidas"]:::proceso
+        L --> M{"¿El sonido funciona correctamente?"}:::decision
+        M -- Sí --> N["Activar sonido por defecto"]:::proceso
+        M -- No --> O["Desactivar sonido por defecto"]:::proceso
         
-        Q --> S1(( S )):::inicio
-        R --> S1
-        N -. Omitir .-> S1
+        N --> P{"¿Revisar datos guardados?"}:::decision
+        O --> P
+        
+        P -. Opcional .-> Q["Leer datos de la memoria"]:::io
+        Q --> R{"¿Los datos están correctos?"}:::decision
+        R -- Sí --> S["Permitir guardar partidas"]:::proceso
+        R -- No --> T["Desactivar guardado de partidas"]:::proceso
+        
+        S --> S1(( S )):::inicio
+        T --> S1
+        P -. Omitir .-> S1
     end
 
     %% ETAPA 2: INTERFAZ DE MENÚ
     subgraph E2 [Etapa 2: Interfaz del menú principal]
         S1 --> S_Menu["Mostrar Menú Principal: Cuadrícula con 4 juegos (ID 0, 1, 2, 3)"]:::io
-        S_Menu --> T["Leer botón del mando"]:::io
         
-        T --> U{"¿Qué botón se presionó?"}:::decision
+        %% Mapeo dinámico según el periférico registrado en la Etapa 1
+        S_Menu --> T1["Leer entrada desde el periférico registrado como activo"]:::io
+        T1 --> T2["Mapear señal recibida al registro estándar de 8 botones (Cruceta, A, B, Select, Start)"]:::proceso
+        T2 --> U{"¿Qué botón se detectó en el registro?"}:::decision
         
-        %% Programación detallada de los 4 movimientos de la Cruceta
+        %% Navegación del menú
         U -- Cruceta --> V{"¿Hacia qué dirección?"}:::decision
         V -- Arriba / Abajo --> V1["Mover selector verticalmente entre filas"]:::proceso
         V -- Izquierda / Derecha --> V2["Mover selector horizontalmente entre columnas"]:::proceso
@@ -76,16 +91,16 @@ graph TD
         X -- Sí --> X1["Apagar sonido y quitar ícono de parlante"]:::proceso
         X -- No --> X2["Encender sonido y mostrar ícono de parlante"]:::proceso
         
-        %% Retorno limpio y unificado
+        %% Retorno de actualización
         V3 --> Z1["Actualizar la pantalla del menú"]:::proceso
         W --> Z1
         Y --> Z1
         X1 --> Z1
         X2 --> Z1
         
-        Z1 --> T
+        Z1 --> T1
         
-        %% Salida al presionar Start
+        %% Selección de juego
         U -- Start --> Z2{"¿Está seleccionado el modo Multijugador?"}:::decision
         Z2 -- No --> AA
         Z2 -- Sí --> Z3["Validar conexión de las 4 pantallas para detectar cuáles están activas"]:::proceso
@@ -95,9 +110,11 @@ graph TD
 
     %% ETAPA 3: BUCLE PRINCIPAL DE JUEGO (GAME LOOP)
     subgraph E3 [Etapa 3: Bucle del juego]
-        AA{{"Cargar vidas, puntos e imagen del juego seleccionado según su ID"}}:::proceso --> AB
+        AA{{"Cargar vidas, puntos e imagen del juego seleccionado según su ID"}}:::proceso --> AB1
         
-        AB["Leer botones durante el juego"]:::io --> AC{"¿Se presiona Select?"}:::decision
+        %% Mapeo transparente durante el gameplay
+        AB1["Leer entrada del periférico activo"]:::io --> AB2["Traducir señal al registro de acciones del jugador"]:::proceso
+        AB2 --> AC{"¿Se presiona Select?"}:::decision
         
         AC -- Sí --> AD["Salir del juego actual"]:::proceso
         AD --> S_Exit1(( S )):::inicio
@@ -108,9 +125,9 @@ graph TD
         AE -- No --> AG
         
         AG -- Sí --> AH["Congelar juego y mostrar mensaje de 'Pausa'"]:::io
-        AH --> AB
+        AH --> AB1
         
-        %% Desglose detallado del movimiento y físicas
+        %% Lógica del juego
         AG -- No --> AI1["Calcular posición del personaje según los botones presionados"]:::proceso
         AI1 --> AI2["Mover objetos o pelota automáticamente según su velocidad y dirección"]:::proceso
         AI2 --> AI3{"¿Los objetos o la pelota chocan con los bordes de la pantalla?"}:::decision
@@ -138,7 +155,7 @@ graph TD
         AU --> S_Exit3(( S )):::inicio
         
         AT -- No --> AP
-        AP --> AB
+        AP --> AB1
     end
 
     %% Estilos de contenedores

@@ -1,94 +1,107 @@
 ```mermaid
 graph TD
     %% Etapa 1: Verificación del funcionamiento del hardware
-    A([ Power on ]) --> B{{ Energización de la fpga con inicio en 0x00000000 }}
-    B --> C[/ Lectura del firmware de arranque /]
-    C --> D[\ Verificación del módulo de video: muestra 'press x' y timer de timeout /]
-    
-    D --> E{ ¿Transcurre la porción del timeout sin pulsación? }
-    E -- Sí --> F[ Se activa alerta de audio de timeout ]
-    F --> G[/ Se detecta la pulsación de la tecla /]
-    E -- No --> G
-    
-    G --> H[ Verificación del módulo de audio: al presionar una tecla se reproduce sonido ]
-    H --> I{ ¿El firmware evalúa que se está enviando sonido? }
-    
-    I -- Sí --> J[ Se establece Audio = 1 ]
-    I -- No --> K[ Se establece Audio = 0 y juega normal ]
-    
-    J --> L{ ¿Se realiza la validación de información en memoria? }
-    K --> L
-    
-    %% Ruta opcional mediante líneas punteadas
-    L -. Opcional .-> M[/ Lectura del magic byte en la eeprom /]
-    M --> N{ ¿La estructura de datos está bien? }
-    N -- Sí --> O[ Save_ok = 1: estructura bien /]
-    N -- No --> P[ Save_ok = 0: modo no guardar /]
-    
-    O --> Q
-    P --> Q
-    L -. Saltar proceso .-> Q
+    subgraph Etapa 1: Verificación del funcionamiento del hardware
+        A([ Power on ]) --> B{{ Energización de la fpga con inicio en 0x00000000 }}
+        B --> C[/ Lectura del firmware de arranque /]
+        C --> D[\ Verificación del módulo de video y periféricos PS2/NES/mouse: muestra 'press x' /]
+        
+        D --> E{ ¿Se detecta la pulsación de la tecla? }
+        E -- Sí --> F[ Verificación del módulo de audio: al presionar una tecla se reproduce sonido ]
+        
+        E -- No --> G{ ¿Se alcanza la mitad del timer de timeout? }
+        G -- Sí --> H[ Emite alerta de audio de timeout ]
+        H --> I{ ¿Expira el tiempo límite total sin tecla? }
+        G -- No --> I
+        
+        I -- No --> E
+        I -- Sí --> J([ Bloqueo del sistema: detiene el arranque por falta de entrada ])
+        
+        F --> K{ ¿El firmware evalúa que se está enviando sonido? }
+        K -- Sí --> L[ Se establece Audio = 1 ]
+        K -- No --> M[ Se establece Audio = 0 y juega normal ]
+        
+        L --> N{ ¿Se realiza la validación de información en memoria? }
+        M --> N
+        
+        N -. Opcional .-> O[/ Lectura del magic byte en la eeprom /]
+        O --> P{ ¿La estructura de datos está bien? }
+        P -- Sí --> Q[ Save_ok = 1: estructura bien ]
+        P -- No --> R[ Save_ok = 0: modo no guardar ]
+        
+        Q --> S
+        R --> S
+        N -. Saltar proceso .-> S
+    end
 
     %% Etapa 2: Interfaz de menú
-    Q[\ Dibujar menú principal: muestra la lista con los 4 juegos, dibuja 4 íconos e inicia en ID = 0 /]
-    Q --> R[/ Leer entrada del mando /]
-    
-    R --> S{ ¿Qué comando se detecta? }
-    
-    S -- Cruceta --> T[ Cambiar fila o columna y mover marco selector ]
-    T --> R
-    
-    S -- Botón B --> U[\ Mostrar pantalla de tutorial /]
-    U --> R
-    
-    S -- Botón A --> V{ ¿Configuración de audio? }
-    V --> R
-    
-    S -- Select --> W[ Ingresar a configuración ]
-    W --> R
-    
-    S -- Start --> X{ ¿Evaluar jugadores y validar otras pantallas? }
+    subgraph Etapa 2: Interfaz de menú
+        S[\ Dibujar menú principal: muestra la lista con los 4 juegos, dibuja 4 íconos e inicia en ID = 0 /]
+        S --> T[/ Leer entrada del mando /]
+        
+        T --> U{ ¿Qué comando se detecta? }
+        
+        U -- Cruceta --> V[ Cambiar fila o columna y mover marco selector ]
+        U -- Botón B --> W[\ Mostrar pantalla de tutorial /]
+        U -- Select --> Y[ Ingresar a configuración del sistema ]
+        
+        U -- Botón A --> X{ ¿El audio se encuentra activo Audio == 1? }
+        X -- Sí --> X1[ Desactivar sonido: Audio = 0 ]
+        X -- No --> X2[ Activar sonido: Audio = 1 ]
+        
+        %% Nodo de retorno unificado para evitar cruce de líneas
+        V --> Z1[ Actualizar interfaz visual y esperar entrada ]
+        W --> Z1
+        Y --> Z1
+        X1 --> Z1
+        X2 --> Z1
+        Z1 --> T
+        
+        %% Evaluación limpia para Start
+        U -- Start --> Z2{ ¿Se seleccionó modo multijugador? }
+        Z2 -- No --> AA
+        Z2 -- Sí --> Z3[ Ejecutar protocolo de comunicación entre pantallas ]
+        Z3 --> Z4[\ Desplegar visualmente en la matriz las pantallas conectadas /]
+        Z4 --> AA
+    end
 
-    %% Inicializar el videojuego
-    X -- Confirmar inicio --> Y{{ Reinicio de variables: puntaje y vidas, asignando coordenadas iniciales }}
-
-    %% Game loop
-    Y --> Z[/ Lectura de entradas en el juego /]
-    
-    Z --> AA{ Select: ¿romper el juego? }
-    AA -- Sí --> AB[ Salir al menú principal ]
-    AB --> Q
-    
-    AA -- No --> AC{ Start: ¿pausar el juego? }
-    AC -- Sí --> AD[ Conmutar estado de pausa ]
-    AD --> AE{ ¿El juego se encuentra en pausa? }
-    AC -- No --> AE
-    
-    AE -- Sí --> AF[\ Congelar pantalla y mostrar texto de pausa /]
-    AF --> Z
-    
-    AE -- No --> AG[ Actualización de posición: coordenadas de jugador, obstáculo y enemigo ]
-    
-    %% Detector de colisiones y lógica de perder
-    AG --> AH{ Jugador vs enemigo u obstáculo: ¿coinciden coordenadas? }
-    AH -- Sí --> AI[ Resta una vida ]
-    AI --> AJ[ Emite tono de daño ]
-    AJ --> AK[ Reinicia coordenadas x,y del jugador ]
-    AK --> AL{ ¿Cantidad de vidas == 0? }
-    AL -- Sí --> AM[\ Lógica de perder: despliega pantalla de juego terminado /]
-    AM --> Q
-    AL -- No --> AN[\ Renderizar fotograma en la matriz /]
-    
-    %% Colisión con ítem y lógica de ganar
-    AH -- No --> AO{ Jugador vs ítem o punto: ¿coinciden coordenadas? }
-    AO -- Sí --> AP[ Incremento de puntaje ]
-    AP --> AQ[ Reproduce sonido de recompensa ]
-    AQ --> AR{ ¿Se cumple la condición para ganar el nivel? }
-    
-    AO -- No --> AR
-    
-    AR -- Sí --> AS[\ Lógica de ganar: despliega pantalla de victoria /]
-    AS --> Q
-    AR -- No --> AN
-    
-    AN --> Z
+    %% Etapa 3: Inicializar y bucle de juego
+    subgraph Etapa 3: Inicializar y bucle de juego
+        AA{{ Reinicio de variables: puntaje y vidas, asignando coordenadas iniciales }} --> AB[/ Lectura de entradas en el juego /]
+        
+        AB --> AC{ Select: ¿romper el juego? }
+        AC -- Sí --> AD[ Salir al menú principal ]
+        AD --> S
+        
+        AC -- No --> AE{ Start: ¿pausar el juego? }
+        AE -- Sí --> AF[ Conmutar estado de pausa ]
+        AF --> AG{ ¿El juego se encuentra en pausa? }
+        AE -- No --> AG
+        
+        AG -- Sí --> AH[\ Congelar pantalla y mostrar texto de pausa /]
+        AH --> AB
+        
+        AG -- No --> AI[ Actualización de posición: coordenadas de jugador, obstáculo y enemigo ]
+        
+        AI --> AJ{ Jugador vs enemigo u obstáculo: ¿coinciden coordenadas? }
+        AJ -- Sí --> AK[ Resta una vida ]
+        AK --> AL[ Emite tono de daño ]
+        AL --> AM[ Reinicia coordenadas x,y del jugador ]
+        AM --> AN{ ¿Cantidad de vidas == 0? }
+        AN -- Sí --> AO[\ Lógica de perder: despliega pantalla de juego terminado /]
+        AO --> S
+        AN -- No --> AP[\ Renderizar fotograma en la matriz /]
+        
+        AJ -- No --> AQ{ Jugador vs ítem o punto: ¿coinciden coordenadas? }
+        AQ -- Sí --> AR[ Incremento de puntaje ]
+        AR --> AS[ Reproduce sonido de recompensa ]
+        AS --> AT{ ¿Se cumple la condición para ganar el nivel? }
+        
+        AQ -- No --> AT
+        
+        AT -- Sí --> AU[\ Lógica de ganar: despliega pantalla de victoria /]
+        AU --> S
+        AT -- No --> AP
+        
+        AP --> AB
+    end
